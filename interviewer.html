@@ -337,10 +337,10 @@ let registry = [];   // cached candidates list
 let subCache = {};   // name → submissions row
 
 /* ── SUPABASE HELPERS ── */
-async function sbGetAll(table){ const {data}=await _sb.from(table).select('*'); return data||[]; }
-async function sbGet(table,col,val){ const {data}=await _sb.from(table).select('*').eq(col,val).single(); return data||null; }
-async function sbUpsert(table,row,conflict='name'){ await _sb.from(table).upsert(row,{onConflict:conflict}); }
-async function sbDelete(table,col,val){ await _sb.from(table).delete().eq(col,val); }
+async function sbGetAll(table){ try{ const {data,error}=await _sb.from(table).select('*'); if(error) throw error; return data||[]; }catch(e){ console.warn('sbGetAll error:',e.message); return []; } }
+async function sbGet(table,col,val){ try{ const {data,error}=await _sb.from(table).select('*').eq(col,val).maybeSingle(); if(error) throw error; return data||null; }catch(e){ console.warn('sbGet error:',e.message); return null; } }
+async function sbUpsert(table,row,conflict='name'){ try{ const {error}=await _sb.from(table).upsert(row,{onConflict:conflict}); if(error) throw error; }catch(e){ console.warn('sbUpsert error:',e.message); } }
+async function sbDelete(table,col,val){ try{ const {error}=await _sb.from(table).delete().eq(col,val); if(error) throw error; }catch(e){ console.warn('sbDelete error:',e.message); } }
 
 /* ── LOAD STATE ── */
 async function loadAll(){
@@ -362,7 +362,7 @@ async function loadAll(){
 /* ── EXAM ACTIVE TOGGLE ── */
 async function fetchExamActive(){
   const d = await sbGet('settings','key','exam_active');
-  return d?.value !== 'false';
+  return d?.value !== 'false'; // null (row missing) → default true = active
 }
 
 async function toggleExam(){
@@ -447,8 +447,17 @@ async function selectCandidate(name){
 /* ── CANDIDATE DETAIL ── */
 async function renderDetail(name){
   // Refresh data for this candidate
-  const sub  = await sbGet('submissions','name',name);
-  const cand = registry.find(c=>c.name===name)||{};
+  const [sub, freshCand] = await Promise.all([
+    sbGet('submissions','name',name),
+    sbGet('candidates','name',name),
+  ]);
+  if(sub) subCache[name]=sub;
+  // merge fresh candidate data into registry
+  if(freshCand){
+    const idx=registry.findIndex(c=>c.name===name);
+    if(idx>=0) registry[idx]=freshCand; else registry.push(freshCand);
+  }
+  const cand = freshCand || registry.find(c=>c.name===name) || {};
   if(sub) subCache[name] = sub;
 
   if(!markings[name])  markings[name]  = new Array(TOTAL_BUGS).fill(false);
@@ -767,30 +776,37 @@ function exportExcel(){
 /* ── REAL-TIME SUBSCRIPTION ── */
 function subscribeRealtime(){
   _sb.channel('qa-live')
-    .on('postgres_changes',{event:'*',schema:'public',table:'candidates'},async(payload)=>{
-      // Update local registry
-      const updated=payload.new;
-      if(updated&&updated.name){
-        const idx=registry.findIndex(c=>c.name===updated.name);
-        if(idx>=0) registry[idx]=updated; else registry.push(updated);
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'candidates'},(payload)=>{
+      if(payload.new && !registry.find(c=>c.name===payload.new.name)){
+        registry.push(payload.new);
       }
-      if(payload.eventType==='DELETE'&&payload.old?.name){
-        registry=registry.filter(c=>c.name!==payload.old.name);
+      renderSidebar();
+    })
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'candidates'},(payload)=>{
+      if(payload.new){
+        const idx=registry.findIndex(c=>c.name===payload.new.name);
+        if(idx>=0) registry[idx]=payload.new; else registry.push(payload.new);
       }
+      renderSidebar();
+    })
+    .on('postgres_changes',{event:'DELETE',schema:'public',table:'candidates'},(payload)=>{
+      if(payload.old?.name) registry=registry.filter(c=>c.name!==payload.old.name);
       renderSidebar();
     })
     .on('postgres_changes',{event:'*',schema:'public',table:'submissions'},async(payload)=>{
       const updated=payload.new;
-      if(updated&&updated.name){
+      if(updated?.name){
         subCache[updated.name]=updated;
+        renderSidebar();
         if(selected===updated.name) await renderDetail(updated.name);
       }
-      renderSidebar();
     })
-    .on('postgres_changes',{event:'*',schema:'public',table:'settings'},async(payload)=>{
+    .on('postgres_changes',{event:'*',schema:'public',table:'settings'},(payload)=>{
       if(payload.new?.key==='exam_active') updateToggleUI(payload.new.value!=='false');
     })
-    .subscribe();
+    .subscribe((status)=>{
+      console.log('Realtime status:', status);
+    });
 }
 
 /* ── INIT ── */

@@ -685,9 +685,10 @@ let _examActive=true;
 
 async function fetchExamActive(){
   try{
-    const {data}=await _sb.from('settings').select('value').eq('key','exam_active').single();
-    _examActive=data?.value!=='false';
-  }catch(e){/* keep cached value */}
+    const {data, error}=await _sb.from('settings').select('value').eq('key','exam_active').maybeSingle();
+    if(error){ console.warn('fetchExamActive error:',error.message); return _examActive; }
+    _examActive = data?.value !== 'false'; // null means row missing → default active
+  }catch(e){ /* keep cached value */ }
   return _examActive;
 }
 
@@ -738,22 +739,32 @@ async function startExam(){
 /* ── SUPABASE OPS ── */
 async function registerCandidate(){
   try{
-    await _sb.from('candidates').upsert({name:cName,status:'in_progress',updated_at:new Date().toISOString()},{onConflict:'name',ignoreDuplicates:true});
-  }catch(e){console.warn(e);}
+    const now=new Date().toISOString();
+    // upsert candidate row
+    await _sb.from('candidates').upsert(
+      {name:cName, status:'in_progress', bug_count:0, tc_count:0, updated_at:now},
+      {onConflict:'name', ignoreDuplicates:true}
+    );
+    // ensure submissions row exists
+    const {data:existing}=await _sb.from('submissions').select('name').eq('name',cName).maybeSingle();
+    if(!existing){
+      await _sb.from('submissions').insert({name:cName, bugs:[], test_cases:[], timer_start:examStartTs, updated_at:now});
+    }
+  }catch(e){ console.warn('registerCandidate error:',e); }
 }
 
 async function loadData(){
   try{
-    const {data}=await _sb.from('submissions').select('*').eq('name',cName).single();
-    if(data){
-      bugs=data.bugs||[]; tcs=data.test_cases||[];
+    const {data:sub, error:subErr}=await _sb.from('submissions').select('*').eq('name',cName).maybeSingle();
+    if(!subErr && sub){
+      bugs=sub.bugs||[]; tcs=sub.test_cases||[];
       tcN=tcs.length?Math.max(...tcs.map(t=>t.id)):0;
-      if(data.timer_start) examStartTs=data.timer_start;
+      if(sub.timer_start) examStartTs=sub.timer_start;
       renderBugs(); renderTCs();
     }
     // check if already submitted
-    const {data:cand}=await _sb.from('candidates').select('status').eq('name',cName).single();
-    if(cand&&(cand.status==='submitted'||cand.status==='timeout')){
+    const {data:cand, error:candErr}=await _sb.from('candidates').select('status').eq('name',cName).maybeSingle();
+    if(!candErr && cand && (cand.status==='submitted'||cand.status==='timeout')){
       examDone=true;
       document.getElementById('login-screen').style.display='none';
       document.getElementById('main-app').style.display='none';
@@ -764,7 +775,7 @@ async function loadData(){
         document.getElementById('timeout-screen').style.display='flex';
       }
     }
-  }catch(e){/* new candidate, no data yet */}
+  }catch(e){ console.warn('loadData error:',e); }
 }
 
 function scheduleSave(status){
@@ -775,11 +786,18 @@ function scheduleSave(status){
 async function doSave(status){
   try{
     const now=new Date().toISOString();
-    await _sb.from('candidates').upsert({name:cName,status:status||'in_progress',bug_count:bugs.length,tc_count:tcs.length,updated_at:now});
-    await _sb.from('submissions').upsert({name:cName,bugs,test_cases:tcs,timer_start:examStartTs,updated_at:now});
+    await _sb.from('candidates').upsert(
+      {name:cName, status:status||'in_progress', bug_count:bugs.length, tc_count:tcs.length, updated_at:now},
+      {onConflict:'name'}
+    );
+    await _sb.from('submissions').upsert(
+      {name:cName, bugs, test_cases:tcs, timer_start:examStartTs, updated_at:now},
+      {onConflict:'name'}
+    );
     const f=document.getElementById('saved-flash');
     if(f){f.classList.add('on');setTimeout(()=>f.classList.remove('on'),2000);}
-  }catch(e){console.warn('Save failed',e);}
+  }catch(e){ console.warn('Save failed:',e.message||e); }
+}
 }
 
 function save(status){scheduleSave(status);}
