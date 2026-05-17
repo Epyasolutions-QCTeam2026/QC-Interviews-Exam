@@ -359,13 +359,16 @@ async function loadAll(){
 /* ── EXAM ACTIVE TOGGLE ── */
 async function fetchExamActive(){
   const d = await sbGet('settings','key','exam_active');
-  return d?.value !== 'false'; // null (row missing) → default true = active
+  return d === null || d.value !== 'false'; // null → row missing → default active
 }
 
 async function toggleExam(){
   const current = await fetchExamActive();
-  await sbUpsert('settings',{key:'exam_active',value:String(!current)},'key');
-  updateToggleUI(!current);
+  const next = !current;
+  // upsert guarantees the row is created if it doesn't exist yet
+  await _sb.from('settings').upsert({key:'exam_active', value:String(next)}, {onConflict:'key'});
+  updateToggleUI(next);
+  console.log('[QA] exam toggled to:', next ? 'active' : 'inactive');
 }
 
 function updateToggleUI(active){
