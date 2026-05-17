@@ -269,9 +269,9 @@ tr:hover td{background:var(--surface2)}
     <p>Enter the interviewer password to access the panel.</p>
     <input id="pw-input" class="pw-input" type="password" placeholder="Enter password"
            onkeydown="if(event.key==='Enter')checkPassword()">
-    <button class="pw-btn" onclick="checkPassword()">Enter panel</button>
+    <button class="pw-btn" id="pw-btn" onclick="checkPassword()">Enter panel</button>
     <p class="pw-error" id="pw-error"></p>
-    <p class="pw-note">This page is restricted to interviewers only.</p>
+    <p class="pw-note">🔒 Password protected · Max 5 attempts · 15 min lockout</p>
   </div>
 </div>
 
@@ -339,46 +339,136 @@ tr:hover td{background:var(--surface2)}
 
 <script>
 /* ══════════════════════════════════════════════════
-   INTERVIEWER PASSWORD
-   Change the value below to set your own password.
+   INTERVIEWER PASSWORD CONFIGURATION
+
+   The password is stored as a SHA-256 hash — it
+   cannot be read from the source code.
+
+   Default password: interviewer2024
+
+   To change it:
+   1. Go to: https://emn178.github.io/online-tools/sha256.html
+   2. Type your new password → copy the hash
+   3. Replace the hash string below with your new one
    ══════════════════════════════════════════════════ */
-const _PW = 'interviewer2024';
+const _PW_HASH = 'ae54f464aa93fa71f8c063b3e934e884d5340ad1bfffb6713d46f27f31395fb8';
 
-/* ── PASSWORD GATE ── */
-const _SESSION_KEY = 'qa_interviewer_auth';
+/* ── SECURITY SETTINGS ── */
+const MAX_ATTEMPTS   = 5;      // failed attempts before lockout
+const LOCKOUT_MINS   = 15;     // lockout duration in minutes
+const AUTH_STORE     = 'qa_iw_auth';
+const ATTEMPT_STORE  = 'qa_iw_attempts';
+const LOCKOUT_STORE  = 'qa_iw_lockout';
 
-function checkPassword(){
-  const input = document.getElementById('pw-input');
-  const errEl = document.getElementById('pw-error');
-  const val   = input.value;
+/* ── HASH FUNCTION (Web Crypto API — built into all browsers) ── */
+async function sha256(message){
+  const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 
-  if(val === _PW){
-    // Store session so they don't need to re-enter on refresh
-    sessionStorage.setItem(_SESSION_KEY, 'true');
+/* ── LOCKOUT HELPERS ── */
+function getLockoutRemaining(){
+  const until = parseInt(localStorage.getItem(LOCKOUT_STORE)||'0');
+  const left  = Math.ceil((until - Date.now()) / 60000);
+  return left > 0 ? left : 0;
+}
+
+function getAttempts(){
+  return parseInt(localStorage.getItem(ATTEMPT_STORE)||'0');
+}
+
+function recordFailedAttempt(){
+  const attempts = getAttempts() + 1;
+  localStorage.setItem(ATTEMPT_STORE, attempts);
+  if(attempts >= MAX_ATTEMPTS){
+    const until = Date.now() + LOCKOUT_MINS * 60 * 1000;
+    localStorage.setItem(LOCKOUT_STORE, until);
+    localStorage.setItem(ATTEMPT_STORE, '0');
+  }
+  return attempts;
+}
+
+function clearAttempts(){
+  localStorage.removeItem(ATTEMPT_STORE);
+  localStorage.removeItem(LOCKOUT_STORE);
+}
+
+/* ── PASSWORD CHECK ── */
+async function checkPassword(){
+  const input  = document.getElementById('pw-input');
+  const errEl  = document.getElementById('pw-error');
+  const btn    = document.getElementById('pw-btn');
+
+  // Check lockout first
+  const lockedMins = getLockoutRemaining();
+  if(lockedMins > 0){
+    errEl.textContent = `Too many failed attempts. Try again in ${lockedMins} minute${lockedMins>1?'s':''}.`;
+    input.classList.add('err');
+    setTimeout(()=>input.classList.remove('err'), 400);
+    return;
+  }
+
+  const val = input.value.trim();
+  if(!val) return;
+
+  // Disable button while hashing
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+
+  const hash = await sha256(val);
+
+  if(hash === _PW_HASH){
+    clearAttempts();
+    sessionStorage.setItem(AUTH_STORE, 'true');
     unlockPanel();
   } else {
+    const attempts = recordFailedAttempt();
+    const remaining = MAX_ATTEMPTS - attempts;
     input.classList.add('err');
-    errEl.textContent = 'Incorrect password. Please try again.';
     input.value = '';
     input.focus();
-    setTimeout(() => input.classList.remove('err'), 400);
+
+    const lockedNow = getLockoutRemaining();
+    if(lockedNow > 0){
+      errEl.textContent = `Too many failed attempts. Locked for ${lockedNow} minute${lockedNow>1?'s':''}.`;
+    } else {
+      errEl.textContent = remaining > 0
+        ? `Incorrect password. ${remaining} attempt${remaining>1?'s':''} remaining.`
+        : 'Incorrect password.';
+    }
+
+    setTimeout(()=>{
+      input.classList.remove('err');
+      btn.disabled = false;
+      btn.textContent = 'Enter panel';
+    }, 600);
   }
 }
 
 function unlockPanel(){
-  document.getElementById('pw-screen').style.display    = 'none';
+  document.getElementById('pw-screen').style.display     = 'none';
   document.getElementById('main-app-wrap').style.display = 'block';
-  // Init the app after unlocking
   initApp();
 }
 
-// Check if already authenticated this session
-(function(){
-  if(sessionStorage.getItem(_SESSION_KEY) === 'true'){
-    // Will call unlockPanel after DOM + scripts ready
-    window.addEventListener('DOMContentLoaded', unlockPanel);
+/* ── AUTO-UNLOCK IF SESSION VALID ── */
+window.addEventListener('DOMContentLoaded', ()=>{
+  // Show lockout message if locked
+  const lockedMins = getLockoutRemaining();
+  if(lockedMins > 0){
+    const errEl = document.getElementById('pw-error');
+    if(errEl) errEl.textContent = `Too many failed attempts. Try again in ${lockedMins} minute${lockedMins>1?'s':''}.`;
+    const input = document.getElementById('pw-input');
+    if(input) input.disabled = true;
+    const btn = document.getElementById('pw-btn');
+    if(btn){ btn.disabled = true; btn.textContent = `Locked (${lockedMins}m)`; }
   }
-})();
+
+  // Auto unlock if already authenticated this session
+  if(sessionStorage.getItem(AUTH_STORE) === 'true'){
+    unlockPanel();
+  }
+});
 /* ══════════════════════════════════════════════════
    PASTE YOUR SUPABASE CREDENTIALS HERE
    ══════════════════════════════════════════════════ */
