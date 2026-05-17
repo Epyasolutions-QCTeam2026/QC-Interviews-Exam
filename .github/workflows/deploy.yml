@@ -1,35 +1,29 @@
-name: Deploy QA Interview Platform
+name: Inject Supabase credentials
 
 on:
   push:
     branches: [main]
-
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+    paths-ignore:
+      - 'config.js'   # prevent infinite loop
 
 jobs:
-  deploy:
+  inject:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Generate config.js from secrets
+      - name: Generate config.js with real credentials
         run: |
-          cat > config.js << 'ENDOFFILE'
-          const _SUPA_URL = 'SUPABASE_URL_PLACEHOLDER';
-          const _SUPA_KEY = 'SUPABASE_KEY_PLACEHOLDER';
+          cat > config.js << ENDOFFILE
+          const _SUPA_URL = '${{ secrets.SUPABASE_URL }}';
+          const _SUPA_KEY = '${{ secrets.SUPABASE_KEY }}';
           ENDOFFILE
-          sed -i "s|SUPABASE_URL_PLACEHOLDER|${{ secrets.SUPABASE_URL }}|g" config.js
-          sed -i "s|SUPABASE_KEY_PLACEHOLDER|${{ secrets.SUPABASE_KEY }}|g" config.js
-          echo "config.js generated successfully"
-          cat config.js
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
-          exclude_assets: '.github'
+      - name: Commit config.js to main
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add config.js
+          git diff --staged --quiet || git commit -m "chore: inject Supabase credentials [skip ci]"
+          git push
