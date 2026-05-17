@@ -659,8 +659,14 @@ textarea.finput{min-height:78px;resize:vertical}
 </div>
 
 <script>
-/* ── SUPABASE CLIENT (credentials loaded from config.js) ── */
-const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ── SUPABASE CLIENT ── */
+let _sb;
+try{
+  _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+}catch(e){
+  console.error('[QA] Supabase failed to initialise:', e.message);
+  console.error('[QA] Check that config.js has valid SUPABASE_URL and SUPABASE_KEY');
+}
 
 /* ── CATALOG (buggy shop) ── */
 const _pd=[
@@ -695,15 +701,15 @@ let _examActive  = true;   // default: active until Supabase says otherwise
 let _currentScreen = 'login'; // 'login' | 'exam' | 'deactivated' | 'done'
 
 async function fetchExamActive(){
+  if(!_sb){ console.warn('[QA] Supabase not initialised — check config.js'); return _examActive; }
   try{
     const res = await _sb.from('settings').select('value').eq('key','exam_active').maybeSingle();
     if(res.error){
       console.warn('[QA] fetchExamActive error:', res.error.message);
       return _examActive;
     }
-    // data is null → row missing → treat as active
     _examActive = res.data === null || res.data.value !== 'false';
-    console.log('[QA] exam_active =', _examActive, '| raw value:', res.data?.value);
+    console.log('[QA] exam_active =', _examActive, '| raw:', res.data?.value);
   }catch(e){
     console.warn('[QA] fetchExamActive exception:', e.message);
   }
