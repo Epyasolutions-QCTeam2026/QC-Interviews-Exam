@@ -659,13 +659,24 @@ textarea.finput{min-height:78px;resize:vertical}
 </div>
 
 <script>
-/* ── SUPABASE CLIENT ── */
-let _sb;
-try{
-  _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-}catch(e){
-  console.error('[QA] Supabase failed to initialise:', e.message);
-  console.error('[QA] Check that config.js has valid SUPABASE_URL and SUPABASE_KEY');
+/* ── SUPABASE — lazy init so bad credentials never crash the script ── */
+let _sb = null;
+
+function getSb(){
+  if(_sb) return _sb;
+  try{
+    const url = (typeof SUPABASE_URL !== 'undefined') ? SUPABASE_URL : '';
+    const key = (typeof SUPABASE_KEY !== 'undefined') ? SUPABASE_KEY : '';
+    if(!url || url.includes('YOUR_') || !key || key.includes('YOUR_')){
+      console.error('[QA] config.js credentials not set. Open config.js and replace YOUR_SUPABASE_URL and YOUR_SUPABASE_ANON_KEY with your real Supabase values.');
+      return null;
+    }
+    _sb = supabase.createClient(url, key);
+    console.log('[QA] Supabase connected ✓');
+  }catch(e){
+    console.error('[QA] Supabase init error:', e.message);
+  }
+  return _sb;
 }
 
 /* ── CATALOG (buggy shop) ── */
@@ -701,18 +712,14 @@ let _examActive  = true;   // default: active until Supabase says otherwise
 let _currentScreen = 'login'; // 'login' | 'exam' | 'deactivated' | 'done'
 
 async function fetchExamActive(){
-  if(!_sb){ console.warn('[QA] Supabase not initialised — check config.js'); return _examActive; }
+  const sb = getSb();
+  if(!sb){ console.warn('[QA] Supabase not ready — exam treated as active'); return _examActive; }
   try{
-    const res = await _sb.from('settings').select('value').eq('key','exam_active').maybeSingle();
-    if(res.error){
-      console.warn('[QA] fetchExamActive error:', res.error.message);
-      return _examActive;
-    }
+    const res = await sb.from('settings').select('value').eq('key','exam_active').maybeSingle();
+    if(res.error){ console.warn('[QA] fetchExamActive error:', res.error.message); return _examActive; }
     _examActive = res.data === null || res.data.value !== 'false';
     console.log('[QA] exam_active =', _examActive, '| raw:', res.data?.value);
-  }catch(e){
-    console.warn('[QA] fetchExamActive exception:', e.message);
-  }
+  }catch(e){ console.warn('[QA] fetchExamActive exception:', e.message); }
   return _examActive;
 }
 
@@ -815,21 +822,21 @@ async function registerCandidate(){
   try{
     const now=new Date().toISOString();
     // upsert candidate row
-    await _sb.from('candidates').upsert(
+    await getSb()?.from('candidates').upsert(
       {name:cName, status:'in_progress', bug_count:0, tc_count:0, updated_at:now},
       {onConflict:'name', ignoreDuplicates:true}
     );
     // ensure submissions row exists
-    const {data:existing}=await _sb.from('submissions').select('name').eq('name',cName).maybeSingle();
+    const {data:existing}=await getSb()?.from('submissions').select('name').eq('name',cName).maybeSingle();
     if(!existing){
-      await _sb.from('submissions').insert({name:cName, bugs:[], test_cases:[], timer_start:examStartTs, updated_at:now});
+      await getSb()?.from('submissions').insert({name:cName, bugs:[], test_cases:[], timer_start:examStartTs, updated_at:now});
     }
   }catch(e){ console.warn('registerCandidate error:',e); }
 }
 
 async function loadData(){
   try{
-    const {data:sub, error:subErr}=await _sb.from('submissions').select('*').eq('name',cName).maybeSingle();
+    const {data:sub, error:subErr}=await getSb()?.from('submissions').select('*').eq('name',cName).maybeSingle();
     if(!subErr && sub){
       bugs=sub.bugs||[]; tcs=sub.test_cases||[];
       tcN=tcs.length?Math.max(...tcs.map(t=>t.id)):0;
@@ -837,7 +844,7 @@ async function loadData(){
       renderBugs(); renderTCs();
     }
     // check if already submitted
-    const {data:cand, error:candErr}=await _sb.from('candidates').select('status').eq('name',cName).maybeSingle();
+    const {data:cand, error:candErr}=await getSb()?.from('candidates').select('status').eq('name',cName).maybeSingle();
     if(!candErr && cand && (cand.status==='submitted'||cand.status==='timeout')){
       examDone=true;
       document.getElementById('login-screen').style.display='none';
@@ -860,11 +867,11 @@ function scheduleSave(status){
 async function doSave(status){
   try{
     const now=new Date().toISOString();
-    await _sb.from('candidates').upsert(
+    await getSb()?.from('candidates').upsert(
       {name:cName, status:status||'in_progress', bug_count:bugs.length, tc_count:tcs.length, updated_at:now},
       {onConflict:'name'}
     );
-    await _sb.from('submissions').upsert(
+    await getSb()?.from('submissions').upsert(
       {name:cName, bugs, test_cases:tcs, timer_start:examStartTs, updated_at:now},
       {onConflict:'name'}
     );
@@ -1055,7 +1062,7 @@ async function saveDesc(){
   const txt=ta.value.trim();
   if(!txt){msg.style.color='var(--red)';msg.textContent='Please write something before saving.';return;}
   try{
-    await _sb.from('candidates').upsert({name:cName,description:txt,updated_at:new Date().toISOString()});
+    await getSb()?.from('candidates').upsert({name:cName,description:txt,updated_at:new Date().toISOString()});
     msg.style.color='var(--green)';msg.textContent='✓ Description saved!';
     setTimeout(()=>{if(msg)msg.textContent='';},3000);
   }catch(e){msg.style.color='var(--red)';msg.textContent='Save failed — check your connection.';}

@@ -304,8 +304,22 @@ tr:hover td{background:var(--surface2)}
 </div>
 
 <script>
-/* ── SUPABASE CLIENT (credentials loaded from config.js) ── */
-const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ── SUPABASE — lazy init ── */
+let _sb = null;
+function getSb(){
+  if(_sb) return _sb;
+  try{
+    const url = (typeof SUPABASE_URL !== 'undefined') ? SUPABASE_URL : '';
+    const key = (typeof SUPABASE_KEY !== 'undefined') ? SUPABASE_KEY : '';
+    if(!url || url.includes('YOUR_') || !key || key.includes('YOUR_')){
+      console.error('[QA] config.js not configured — open config.js and set your Supabase credentials.');
+      return null;
+    }
+    _sb = supabase.createClient(url, key);
+    console.log('[QA] Supabase connected ✓');
+  }catch(e){ console.error('[QA] Supabase init error:', e.message); }
+  return _sb;
+}
 
 const TOTAL_BUGS = 12;
 
@@ -334,10 +348,10 @@ let registry = [];   // cached candidates list
 let subCache = {};   // name → submissions row
 
 /* ── SUPABASE HELPERS ── */
-async function sbGetAll(table){ try{ const {data,error}=await _sb.from(table).select('*'); if(error) throw error; return data||[]; }catch(e){ console.warn('sbGetAll error:',e.message); return []; } }
-async function sbGet(table,col,val){ try{ const {data,error}=await _sb.from(table).select('*').eq(col,val).maybeSingle(); if(error) throw error; return data||null; }catch(e){ console.warn('sbGet error:',e.message); return null; } }
-async function sbUpsert(table,row,conflict='name'){ try{ const {error}=await _sb.from(table).upsert(row,{onConflict:conflict}); if(error) throw error; }catch(e){ console.warn('sbUpsert error:',e.message); } }
-async function sbDelete(table,col,val){ try{ const {error}=await _sb.from(table).delete().eq(col,val); if(error) throw error; }catch(e){ console.warn('sbDelete error:',e.message); } }
+async function sbGetAll(table){ try{ const {data,error}=await getSb()?.from(table).select('*'); if(error) throw error; return data||[]; }catch(e){ console.warn('sbGetAll error:',e.message); return []; } }
+async function sbGet(table,col,val){ try{ const {data,error}=await getSb()?.from(table).select('*').eq(col,val).maybeSingle(); if(error) throw error; return data||null; }catch(e){ console.warn('sbGet error:',e.message); return null; } }
+async function sbUpsert(table,row,conflict='name'){ try{ const {error}=await getSb()?.from(table).upsert(row,{onConflict:conflict}); if(error) throw error; }catch(e){ console.warn('sbUpsert error:',e.message); } }
+async function sbDelete(table,col,val){ try{ const {error}=await getSb()?.from(table).delete().eq(col,val); if(error) throw error; }catch(e){ console.warn('sbDelete error:',e.message); } }
 
 /* ── LOAD STATE ── */
 async function loadAll(){
@@ -366,7 +380,7 @@ async function toggleExam(){
   const current = await fetchExamActive();
   const next = !current;
   // upsert guarantees the row is created if it doesn't exist yet
-  await _sb.from('settings').upsert({key:'exam_active', value:String(next)}, {onConflict:'key'});
+  await getSb()?.from('settings').upsert({key:'exam_active', value:String(next)}, {onConflict:'key'});
   updateToggleUI(next);
   console.log('[QA] exam toggled to:', next ? 'active' : 'inactive');
 }
@@ -775,7 +789,7 @@ function exportExcel(){
 
 /* ── REAL-TIME SUBSCRIPTION ── */
 function subscribeRealtime(){
-  _sb.channel('qa-live')
+  getSb()?.channel('qa-live')
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'candidates'},(payload)=>{
       if(payload.new && !registry.find(c=>c.name===payload.new.name)){
         registry.push(payload.new);
