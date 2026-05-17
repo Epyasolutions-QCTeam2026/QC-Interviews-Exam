@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{
@@ -303,11 +304,7 @@ tr:hover td{background:var(--surface2)}
 </div>
 
 <script>
-/* ══════════════════════════════════════
-   SUPABASE CONFIG — paste your credentials here
-   ══════════════════════════════════════ */
-const SUPABASE_URL  = 'https://gkzjziaykmdusljefjhz.supabase.co';
-const SUPABASE_KEY  = 'sb_publishable_ughv3gOok5cTGPHCC_i4OA_8ek6m5Tt';
+/* ── SUPABASE CLIENT (credentials loaded from config.js) ── */
 const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const TOTAL_BUGS = 12;

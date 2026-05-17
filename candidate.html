@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
 <style>
 :root{
   --bg:#f7f6f3;--surface:#fff;--surface2:#f0efe9;
@@ -41,6 +42,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .login-btn:hover{background:#3d34c8}
 .login-btn:disabled{background:var(--text3);cursor:not-allowed}
 .login-note{font-size:12px;color:var(--text3);margin-top:12px;text-align:center}
+.exam-disabled-banner{display:none;background:var(--red-bg);border:1px solid var(--red);border-radius:var(--rs);padding:12px 16px;margin-bottom:16px;text-align:center}
+.exam-disabled-banner .icon{font-size:22px;margin-bottom:6px}
+.exam-disabled-banner h3{font-size:15px;font-weight:600;color:var(--red);margin-bottom:4px}
+.exam-disabled-banner p{font-size:13px;color:var(--red);opacity:.85}
+.exam-disabled-banner.show{display:block}
+.login-inline-error{font-size:13px;color:var(--red);text-align:center;margin-top:8px;min-height:18px;font-weight:500}
 
 /* HEADER */
 #main-app{display:none}
@@ -352,7 +359,14 @@ textarea.finput{min-height:78px;resize:vertical}
       <h1>QA Interview</h1>
       <p class="sub">Enter your name to begin the exam.</p>
     </div>
-    <div class="exam-info-box">
+
+    <!-- Shown when exam is deactivated -->
+    <div class="exam-disabled-banner" id="exam-disabled-banner">
+      <div class="icon">🔒</div>
+      <h3>Exam is currently inactive</h3>
+      <p>The interviewer has not opened this exam session yet. Please wait and try again when you are asked to start.</p>
+    </div>
+    <div class="exam-info-box" id="exam-info-box">
       <p><span style="font-size:15px;flex-shrink:0">⏱</span><span><strong>Duration:</strong> 90 minutes — timer starts when you click "Start exam"</span></p>
       <p><span style="font-size:15px;flex-shrink:0">🖥</span><span><strong>Task:</strong> Explore the demo shop, find bugs, write test cases</span></p>
       <p><span style="font-size:15px;flex-shrink:0">📝</span><span><strong>Description:</strong> A "Site description" tab is included in the exam</span></p>
@@ -369,6 +383,7 @@ textarea.finput{min-height:78px;resize:vertical}
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
       Start exam &amp; begin timer
     </button>
+    <p class="login-inline-error" id="login-inline-error"></p>
     <p class="login-note">Your name and all submitted work are visible to the interviewer.</p>
   </div>
 </div>
@@ -645,11 +660,7 @@ textarea.finput{min-height:78px;resize:vertical}
 </div>
 
 <script>
-/* ══════════════════════════════════════
-   SUPABASE CONFIG — paste your credentials here
-   ══════════════════════════════════════ */
-const SUPABASE_URL  = 'https://gkzjziaykmdusljefjhz.supabase.co';
-const SUPABASE_KEY  = 'sb_publishable_ughv3gOok5cTGPHCC_i4OA_8ek6m5Tt';
+/* ── SUPABASE CLIENT (credentials loaded from config.js) ── */
 const _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ── CATALOG (buggy shop) ── */
@@ -694,16 +705,46 @@ async function fetchExamActive(){
 
 async function checkExamActiveLoop(){
   await fetchExamActive();
-  const deact=document.getElementById('deactivated-screen');
-  const login=document.getElementById('login-screen');
-  if(!_examActive){
-    if(login&&login.style.display!=='none') showDeactivatedScreen();
-  } else {
-    if(deact&&deact.style.display!=='none') hideDeactivatedScreen();
+  const loginEl=document.getElementById('login-screen');
+  const deactEl=document.getElementById('deactivated-screen');
+  const mainEl =document.getElementById('main-app');
+
+  // If candidate is on the login screen
+  if(loginEl && loginEl.style.display!=='none'){
+    if(!_examActive) showExamDisabledState();
+    else hideExamDisabledState();
+  }
+  // If exam gets deactivated while candidate is mid-exam → full block screen
+  if(mainEl && mainEl.style.display!=='none' && !_examActive && !examDone){
+    showDeactivatedScreen();
+  }
+  // If exam is re-activated while on the full block screen → restore main app
+  if(deactEl && deactEl.style.display!=='none' && _examActive){
+    hideDeactivatedScreen();
   }
 }
 
+function showExamDisabledState(){
+  // Show the red banner on the login page
+  document.getElementById('exam-disabled-banner').classList.add('show');
+  document.getElementById('exam-info-box') && document.getElementById('exam-info-box').style.setProperty('display','none');
+  // Lock the button
+  const btn=document.getElementById('login-btn');
+  if(btn){ btn.disabled=true; btn.style.background='var(--text3)'; }
+  // Clear any inline error
+  const err=document.getElementById('login-inline-error');
+  if(err) err.textContent='';
+}
+
+function hideExamDisabledState(){
+  document.getElementById('exam-disabled-banner').classList.remove('show');
+  document.getElementById('exam-info-box') && document.getElementById('exam-info-box').style.removeProperty('display');
+  const btn=document.getElementById('login-btn');
+  if(btn){ btn.disabled=false; btn.style.background=''; }
+}
+
 function showDeactivatedScreen(){
+  // Only used if exam is disabled while candidate is mid-exam
   ['login-screen','main-app','timeout-screen','thankyou-screen'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display='none';});
   document.getElementById('deactivated-screen').style.display='flex';
 }
@@ -712,18 +753,26 @@ function hideDeactivatedScreen(){
   document.getElementById('login-screen').style.display='flex';
 }
 
-setInterval(checkExamActiveLoop, 5000);
-
 /* ── LOGIN ── */
 async function startExam(){
   const nameEl=document.getElementById('login-name');
   const btn=document.getElementById('login-btn');
+  const errEl=document.getElementById('login-inline-error');
   const name=nameEl.value.trim();
   if(!name){nameEl.classList.add('err');nameEl.focus();return;}
   nameEl.classList.remove('err');
-  btn.disabled=true; btn.textContent='Starting…';
+  btn.disabled=true;
+  btn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Checking…';
   await fetchExamActive();
-  if(!_examActive){showDeactivatedScreen();return;}
+  if(!_examActive){
+    // Restore button and show inline message — stay on login screen
+    btn.disabled=false;
+    btn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start exam &amp; begin timer';
+    showExamDisabledState();
+    if(errEl) errEl.textContent='⚠ This exam is not active yet. Please wait for the interviewer to open the session.';
+    return;
+  }
+  if(errEl) errEl.textContent='';
   cName=name;
   document.getElementById('user-label').textContent=name;
   document.getElementById('login-screen').style.display='none';
@@ -1145,7 +1194,11 @@ function renderTCs(){
 }
 
 /* ── INIT ── */
-checkExamActiveLoop();
+(async()=>{
+  await fetchExamActive();
+  if(!_examActive) showExamDisabledState();
+  setInterval(checkExamActiveLoop, 5000);
+})();
 </script>
 </body>
 </html>
