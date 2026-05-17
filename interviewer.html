@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- QA Interview Platform | Built: 2026-05-17 14:51:18 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -304,20 +305,19 @@ tr:hover td{background:var(--surface2)}
 </div>
 
 <script>
-/* ── SUPABASE — lazy init ── */
+/* ══════════════════════════════════════════════════
+   PASTE YOUR SUPABASE CREDENTIALS HERE
+   ══════════════════════════════════════════════════ */
+/* ── SUPABASE lazy init (credentials come from config.js via GitHub Actions) ── */
 let _sb = null;
 function getSb(){
   if(_sb) return _sb;
   try{
-    const url = (typeof SUPABASE_URL !== 'undefined') ? SUPABASE_URL : '';
-    const key = (typeof SUPABASE_KEY !== 'undefined') ? SUPABASE_KEY : '';
-    if(!url || url.includes('YOUR_') || !key || key.includes('YOUR_')){
-      console.error('[QA] config.js not configured — open config.js and set your Supabase credentials.');
-      return null;
-    }
-    _sb = supabase.createClient(url, key);
+    if(typeof supabase === 'undefined'){ console.error('[QA] Supabase CDN not loaded'); return null; }
+    if(typeof _SUPA_URL === 'undefined' || _SUPA_URL.includes('YOUR_')){ console.error('[QA] config.js not configured'); return null; }
+    _sb = supabase.createClient(_SUPA_URL, _SUPA_KEY);
     console.log('[QA] Supabase connected ✓');
-  }catch(e){ console.error('[QA] Supabase init error:', e.message); }
+  }catch(e){ console.error('[QA] Supabase error:', e.message); }
   return _sb;
 }
 
