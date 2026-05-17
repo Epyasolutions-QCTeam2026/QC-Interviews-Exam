@@ -876,7 +876,6 @@ async function doSave(status){
     if(f){f.classList.add('on');setTimeout(()=>f.classList.remove('on'),2000);}
   }catch(e){ console.warn('Save failed:',e.message||e); }
 }
-}
 
 function save(status){scheduleSave(status);}
 async function forceSave(status){await doSave(status);}
