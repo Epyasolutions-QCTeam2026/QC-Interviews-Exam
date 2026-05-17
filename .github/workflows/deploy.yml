@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - 'config.js'   # prevent infinite loop
+      - 'config.js'
+
+permissions:
+  contents: write
 
 jobs:
   inject:
@@ -12,18 +15,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate config.js with real credentials
         run: |
-          cat > config.js << ENDOFFILE
-          const _SUPA_URL = '${{ secrets.SUPABASE_URL }}';
-          const _SUPA_KEY = '${{ secrets.SUPABASE_KEY }}';
-          ENDOFFILE
+          printf "const _SUPA_URL = '%s';\nconst _SUPA_KEY = '%s';\n" \
+            "${{ secrets.SUPABASE_URL }}" \
+            "${{ secrets.SUPABASE_KEY }}" > config.js
 
-      - name: Commit config.js to main
+      - name: Commit and push config.js
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add config.js
-          git diff --staged --quiet || git commit -m "chore: inject Supabase credentials [skip ci]"
-          git push
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: inject credentials [skip ci]"
+          git push origin main
